@@ -1,54 +1,22 @@
 import numpy as np
 import torch
-import torch.nn as nn
 import math
-
-
+import torch.nn as nn
 
 CONFIG = {
-    "MODE": "GA",  # Options: "GA" or "DQN"
+    "MODE": "DQN",  # Options: "GA" or "DQN"
     "TRACK_SIZE": 100,
     "TRACK_WIDTH": 20,
     "N_SENSORS": 8,
     "SENSOR_RANGE": 30,
     "FPS": 60, #Speed/smoothness of sim
-    "RENDER_EVERY": 5, # Frames render for every frame shown
-    
-    # GA Hyperparameters
-    "GA_POP_SIZE": 5,
-    "GA_ELITISM": 0.2, # Top % survival
-    "GA_MUTATION_RATE": 0.2,
-    "GA_SIGMA": 0.3, # Gaussian noise std dev
-    
-    # DQN Hyperparameters
-    "DQN_GAMMA": 0.99,
-    "DQN_EPS_START": 1.0,
-    "DQN_EPS_END": 0.05,
-    "DQN_EPS_DECAY": 1000,
-    "DQN_LR": 1e-3,
-    "DQN_BATCH_SIZE": 64,
-    "DQN_MEMORY_SIZE": 10000,
-    "DQN_TARGET_UPDATE": 10,
-    "DQN_Hidden": 64,
-    "DQN_TAU": 0.005
+    "RENDER_EVERY": 4, # Frames render for every frame shown
 }
 
-class EvolutionNet(nn.Module):
-    def __init__(self):
-        super(EvolutionNet, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(CONFIG["N_SENSORS"], 16),
-            nn.ReLU(),
-            nn.Linear(16, 16),
-            nn.ReLU(),
-            nn.Linear(16, 2), # Steering, Accel
-            nn.Tanh() # contraint between -1 and 1
-        )
-        
-    def forward(self, x):
-        return self.fc(x)
-    
-    #Geometry and Physics
+# if cuda avail
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+#Geometry and Physics
 class Track:
     def __init__(self, size, width):
         self.size = size
@@ -85,7 +53,7 @@ class Track:
         if not (r <= x <= self.size - r and r <= y <= self.size - r):
             return True
         
-        # Inner bounds (20 to 80) - collision if center touches expanded inner box
+        # Inner bounds: 20 to 80, collision if center touches expanded inner box
         inner_s, inner_e = self.width - r, (self.size - self.width) + r
         if inner_s <= x <= inner_e and inner_s <= y <= inner_e:
             return True
@@ -120,7 +88,7 @@ class Track:
                     closest_dist = dist
                     
         return closest_dist
-    
+
 class Car:
     def __init__(self, track):
         self.track = track
@@ -141,51 +109,53 @@ class Car:
         return self.get_state()
 
     def step(self, action):
-        """
-        Action handling:
-        GA: action is [steering, acceleration] (continuous)
-        DQN: action is int (0=Left, 1=Straight, 2=Right)
-        """
         if not self.alive:
             return self.get_state(), 0, True, {}
 
-        #Physics Update (ass: bicycle model)
+        # DQN Action Handling
         steering = 0
-        # GA
         if isinstance(action, (list, np.ndarray, torch.Tensor)):
-            steering = float(action[0]) * 0.1 # Scale -1 to 1 -> small angle
-            # (Ignoring acceleration for simpler stable training, fixed speed)
-            # accel = action[1] 
-        else: # DQN (Discrete)
-            if action == 0: steering = -0.1
-            elif action == 2: steering = 0.1
-        
+            steering = float(action[0]) * 0.1
+        else:
+            # Discrete Actions: 0=Left, 1=Straight, 2=Right
+            if action == 0: steering = -0.15 
+            elif action == 2: steering = 0.15
+
+        # Physics
         self.angle += steering
         self.x += math.cos(self.angle) * self.speed
         self.y += math.sin(self.angle) * self.speed
         
         self.time_alive += 1
         self.distance_traveled += self.speed
+        
+        reward = 0
 
-        # Collision Detection
+        # upd sensors
+        self.radars = self._sense()
+
         if self.track.check_collision(self.x, self.y):
             self.alive = False
-            reward = -10
+            reward = -15 # lowered penalty to still motivate progress
         else:
-            # Survival reward
-            reward = 1 
-            # Checkpoint logic for circles
+            '''
+            marginalised reward for survival now. Was moving in small circles. 
+            '''
+            reward += 0.1 
+            
+            #added reward for getting closer to walls
+            min_wall_dist = np.min(self.radars)
+            reward += min_wall_dist * 0.5 
+
+            # Checkpoints\
             cx, cy = self.track.checkpoints[self.current_checkpoint]
             dist_to_cp = math.sqrt((self.x - cx)**2 + (self.y - cy)**2)
             if dist_to_cp < CONFIG["TRACK_WIDTH"]:
                 self.current_checkpoint = (self.current_checkpoint + 1) % 4
-                reward += 10 # Bonus for progress
+                reward += 10 
                 if self.current_checkpoint == 0:
                     self.circles += 1
-                    reward += 50 # Big bonus for lap
-        
-        # Update Sensors
-        self.radars = self._sense()
+                    reward += 20 
         
         return self.get_state(), reward, not self.alive, {}
 
@@ -203,3 +173,20 @@ class Car:
             radars.append(dist / CONFIG["SENSOR_RANGE"]) 
         return np.array(radars)
 
+    def get_state(self):
+        return torch.FloatTensor(self.radars).to(device)
+
+class EvolutionNet(nn.Module):
+    def __init__(self):
+        super(EvolutionNet, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(CONFIG["N_SENSORS"], 16),
+            nn.ReLU(),
+            nn.Linear(16, 16),
+            nn.ReLU(),
+            nn.Linear(16, 2), # Steering, Accel
+            nn.Tanh() # Output -1 to 1
+        )
+
+    def forward(self, x):
+        return self.fc(x)
