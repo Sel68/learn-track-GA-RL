@@ -2,8 +2,11 @@ import numpy as np
 import torch
 import math
 import torch.nn as nn
+import torch.optim as optim
 import matplotlib.pyplot as plt
 import random
+from collections import deque
+import os
 
 CONFIG = {
     "MODE": "GA",  # Options: "GA" or "DQN"
@@ -311,6 +314,97 @@ class DQNNet(nn.Module):
     def forward(self, x):
         return self.fc(x)
     
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
+    
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
+    
+    def sample(self, batch_size):
+        return random.sample(self.buffer, batch_size)
+    
+    def __len__(self):
+        return len(self.buffer)
+
+class DQNAgent:
+    def __init__(self):
+        self.policy_net = DQNNet(CONFIG["N_SENSORS"], 3).to(device)
+        self.target_net = DQNNet(CONFIG["N_SENSORS"], 3).to(device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        # Target net is never trained directly
+        self.target_net.eval()
+        
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=CONFIG["DQN_LR"])
+        self.memory = ReplayBuffer(CONFIG["DQN_MEMORY_SIZE"])
+        self.steps_done = 0
+        self.episode = 0
+        
+        # Logs
+        if os.path.exists("dqn_log.txt"): 
+            os.remove("dqn_log.txt")
+        with open("dqn_log.txt", "w") as f:
+            f.write("Episode,Reward,Duration,Epsilon,Circles\n")
+
+    def select_action(self, state):
+        eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"])*math.exp(-1. * self.steps_done/ CONFIG["DQN_EPS_DECAY"])
+        self.steps_done += 1
+        
+        if random.random() > eps:
+            with torch.no_grad():
+                return self.policy_net(state.unsqueeze(0)).argmax(dim=1).item()
+        else:
+            return random.randint(0, 2)
+
+    def optimize_model(self):
+        if len(self.memory) < CONFIG["DQN_BATCH_SIZE"]: return
+        
+        transitions = self.memory.sample(CONFIG["DQN_BATCH_SIZE"])
+        batch = list(zip(*transitions))
+
+        # Stack tensors
+        state_batch = torch.stack(batch[0])
+        action_batch = torch.LongTensor(batch[1]).unsqueeze(1).to(device)
+        reward_batch = torch.FloatTensor(batch[2]).unsqueeze(1).to(device)
+        next_state_batch = torch.stack(batch[3])
+        done_batch = torch.FloatTensor(batch[4]).unsqueeze(1).to(device)
+
+        '''
+        Compute Q(s_t, a)the model computes Q(s_t), 
+        then we select the columns of actions taken
+        '''
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+
+        # Compute V(s_{t+1}) for all next states.
+        '''
+        Expected values of actions for non_final_next_states are computed based on the "older" target_net
+        '''
+        with torch.no_grad():
+            next_state_values = self.target_net(next_state_batch).max(1)[0].unsqueeze(1)
+            # expected Q values
+            expected_state_action_values = reward_batch + (next_state_values * CONFIG["DQN_GAMMA"] * (1 - done_batch))
+
+        # MSE Loss
+        criterion = nn.MSELoss()
+        loss = criterion(state_action_values, expected_state_action_values)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        # In place gradient clipping
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 10)
+        self.optimizer.step()
+
+    def update_target_network(self):
+        #update: Copy weights entirely
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+
+    def log_episode(self, total_reward, duration, circles):
+        eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"])*math.exp(-1. * self.steps_done / CONFIG["DQN_EPS_DECAY"])
+              
+        print(f"DQN Ep {self.episode}: Rew {total_reward:.1f} | Steps {duration} | Laps {circles} | Eps {eps:.2f}")
+        with open("dqn_log.txt", "a") as f:
+            f.write(f"{self.episode},{total_reward},{duration},{eps:.2f},{circles}\n")
+        self.episode += 1
 
 def run_simulation():
     track = Track(CONFIG["TRACK_SIZE"], CONFIG["TRACK_WIDTH"])
@@ -323,7 +417,6 @@ def run_simulation():
         ga = GeneticPopulation()
         
         while True:
-            # Train/Evaluate Population
             # Fast, no render
             scored_pop = ga.evaluate(track)
             
@@ -341,9 +434,52 @@ def run_simulation():
                     draw_track(ax, track, demo_car, demo_car.radars)
                     plt.title(f"GA Gen {ga.gen_count} | Dist: {demo_car.distance_traveled:.1f}")
                     plt.pause(1/CONFIG["FPS"])
-            
             # Evolve
             ga.evolve(scored_pop)
+
+    elif CONFIG["MODE"] == "DQN":
+        print("Starting Deep Q-Network...")
+        agent = DQNAgent()
+        
+        # Frame skipping constant
+        FRAME_SKIP = 4 
+        
+        while True:
+            car = Car(track)
+            state = car.get_state()
+            total_reward = 0
+            
+            while car.alive and car.time_alive < 3000:
+                # Select action
+                action = agent.select_action(state)
+                
+                # Repeat action for stabiltiy
+                reward_accum = 0
+                for _ in range(FRAME_SKIP):
+                    next_state, r, done, _ = car.step(action)
+                    reward_accum += r
+                    if done:
+                        break
+                        
+                # Store transitions, acc rewards
+                agent.memory.push(state, action, reward_accum, next_state, done)
+                state = next_state
+                total_reward += reward_accum
+                
+                #Optimize
+                agent.optimize_model()
+                
+                #Update Target Network
+                if agent.steps_done % 1000 == 0:
+                    agent.update_target_network()
+                
+                # Vis
+                if agent.episode % 10 == 0 and car.time_alive % CONFIG["RENDER_EVERY"] == 0:
+                    draw_track(ax, track, car, car.radars)
+                    plt.title(f"DQN Ep {agent.episode} | Rew: {total_reward:.1f}")
+                    plt.pause(1/CONFIG["FPS"])
+            
+            agent.log_episode(total_reward, car.time_alive, car.circles)
 
 if __name__ == "__main__":
     run_simulation()
