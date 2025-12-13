@@ -2,7 +2,31 @@ import os
 import torch.nn as nn
 
 CONFIG = {
-
+    "MODE": "GA",  # Options: "GA" or "DQN"
+    "TRACK_SIZE": 100,
+    "TRACK_WIDTH": 20,
+    "N_SENSORS": 8,
+    "SENSOR_RANGE": 30,
+    "FPS": 60, #Speed/smoothness of sim
+    "RENDER_EVERY": 5, # Frames render for every frame shown
+    
+    # GA Hyperparameters
+    "GA_POP_SIZE": 5,
+    "GA_ELITISM": 0.2, # Top % survival
+    "GA_MUTATION_RATE": 0.2,
+    "GA_SIGMA": 0.3, # Gaussian noise std dev
+    
+    # DQN Hyperparameters
+    "DQN_GAMMA": 0.99,
+    "DQN_EPS_START": 1.0,
+    "DQN_EPS_END": 0.05,
+    "DQN_EPS_DECAY": 1000,
+    "DQN_LR": 1e-3,
+    "DQN_BATCH_SIZE": 64,
+    "DQN_MEMORY_SIZE": 10000,
+    "DQN_TARGET_UPDATE": 10,
+    "DQN_Hidden": 64,
+    "DQN_TAU": 0.005
 }
 
 class EvolutionNet(nn.Module):
