@@ -1,5 +1,10 @@
-import os
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
 import torch.nn as nn
+import math
+
+
 
 CONFIG = {
     "MODE": "GA",  # Options: "GA" or "DQN"
@@ -117,7 +122,7 @@ class Track:
                     
         return closest_dist
     
-    class Car:
+class Car:
     def __init__(self, track):
         self.track = track
         self.reset()
@@ -199,5 +204,3 @@ class Track:
             radars.append(dist / CONFIG["SENSOR_RANGE"]) 
         return np.array(radars)
 
-    def get_state(self):
-        return torch.FloatTensor(self.radars).to(device)
