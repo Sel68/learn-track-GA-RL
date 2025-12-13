@@ -9,7 +9,7 @@ from collections import deque
 import os
 
 CONFIG = {
-    "MODE": "GA",  # Options: "GA" or "DQN"
+    "MODE": "DQN",  # Options: "GA" or "DQN"
     "TRACK_SIZE": 100,
     "TRACK_WIDTH": 20,
     "N_SENSORS": 8,
@@ -24,11 +24,11 @@ CONFIG = {
     "GA_SIGMA": 0.3, # Gaussian noise std dev
 
     # DQN Hyperparameters
-    "DQN_GAMMA": 0.90,
+    "DQN_GAMMA": 0.95,
     "DQN_EPS_START": 1.0,
     "DQN_EPS_END": 0.05,
-    "DQN_EPS_DECAY": 1000,
-    "DQN_LR": 1e-4,
+    "DQN_EPS_DECAY": 5000,
+    "DQN_LR": 1e-3,
     "DQN_BATCH_SIZE": 128,
     "DQN_MEMORY_SIZE": 50000,
     "DQN_TARGET_UPDATE": 10,
@@ -52,7 +52,7 @@ class Track:
             ((size, size), (0, size)),
             ((0, size), (0, 0))
         ]
-        # Inner Clockwise (inset by width)
+        # Inner Clockwise
         inner_s = width
         inner_e = size - width
         self.inner_walls = [
