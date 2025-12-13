@@ -9,25 +9,25 @@ from collections import deque
 import os
 
 CONFIG = {
-    "MODE": "DQN",  # Options: "GA" or "DQN"
+    "MODE": "GA",  # "GA" or "DQN"
     "TRACK_SIZE": 100,
     "TRACK_WIDTH": 20,
     "N_SENSORS": 8,
     "SENSOR_RANGE": 30,
     "FPS": 60, #Speed/smoothness of sim
-    "RENDER_EVERY": 4, # Frames render for every frame shown
+    "RENDER_EVERY": 40, # Frames render for every frame shown
 
     # GA Hyperparameters
     "GA_POP_SIZE": 5,
     "GA_ELITISM": 0.2, # Top % survival
-    "GA_MUTATION_RATE": 0.2,
+    "GA_MUTATION_RATE": 0.6,
     "GA_SIGMA": 0.3, # Gaussian noise std dev
 
     # DQN Hyperparameters
     "DQN_GAMMA": 0.95,
     "DQN_EPS_START": 1.0,
     "DQN_EPS_END": 0.05,
-    "DQN_EPS_DECAY": 5000,
+    "DQN_EPS_DECAY": 500,
     "DQN_LR": 1e-3,
     "DQN_BATCH_SIZE": 128,
     "DQN_MEMORY_SIZE": 50000,
@@ -71,7 +71,7 @@ class Track:
         ]
 
     def check_collision(self, x, y):
-        r = 3 # Car radius
+        r = 3.5 # Car radius
         # Outer bounds (100) - collision if center is within radius of 0 or 100
         if not (r <= x <= self.size - r and r <= y <= self.size - r):
             return True
@@ -401,7 +401,7 @@ class DQNAgent:
     def log_episode(self, total_reward, duration, circles):
         eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"])*math.exp(-1. * self.steps_done / CONFIG["DQN_EPS_DECAY"])
               
-        print(f"DQN Ep {self.episode}: Rew {total_reward:.1f} | Steps {duration} | Laps {circles} | Eps {eps:.2f}")
+        print(f"DQN Ep {self.episode}: Rew {total_reward:.1f} | Steps {duration} | Circles {circles} | Eps {eps:.2f}")
         with open("dqn_log.txt", "a") as f:
             f.write(f"{self.episode},{total_reward},{duration},{eps:.2f},{circles}\n")
         self.episode += 1
@@ -449,7 +449,7 @@ def run_simulation():
             state = car.get_state()
             total_reward = 0
             
-            while car.alive and car.time_alive < 3000:
+            while car.alive and car.time_alive < 10000:
                 # Select action
                 action = agent.select_action(state)
                 
