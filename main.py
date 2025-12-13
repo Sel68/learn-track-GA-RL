@@ -272,33 +272,6 @@ class GeneticPopulation:
         self.gen_count += 1
         # Returns only the best model for visualization
         return scored_pop[0][2] 
-    
-#Visualisation
-def draw_track(ax, track, car, sensors=None):
-    ax.clear()
-    ax.set_xlim(0, track.size)
-    ax.set_ylim(0, track.size)
-    
-    # Draw Walls
-    for p1, p2 in track.outer_walls:
-        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'k-', linewidth=2)
-    for p1, p2 in track.inner_walls:
-        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'k-', linewidth=2)
-        
-    # Draw Car
-    circle = plt.Circle((car.x, car.y), 1.5, color='b' if car.alive else 'r')
-    ax.add_patch(circle)
-    
-    # Draw Sensors (Viz of raycasts)
-    if sensors is not None:
-        start_angle = car.angle - math.pi / 2
-        step_angle = math.pi / (CONFIG["N_SENSORS"] - 1)
-        for i, dist_norm in enumerate(sensors):
-            ray_angle = start_angle + i * step_angle
-            real_dist = dist_norm * CONFIG["SENSOR_RANGE"]
-            ex = car.x + math.cos(ray_angle) * real_dist
-            ey = car.y + math.sin(ray_angle) * real_dist
-            ax.plot([car.x, ex], [car.y, ey], 'g-', alpha=0.5)
 
 class DQNNet(nn.Module):
     def __init__(self, inputs, outputs):
@@ -405,6 +378,33 @@ class DQNAgent:
         with open("dqn_log.txt", "a") as f:
             f.write(f"{self.episode},{total_reward},{duration},{eps:.2f},{circles}\n")
         self.episode += 1
+
+#Visualisation
+def draw_track(ax, track, car, sensors=None):
+    ax.clear()
+    ax.set_xlim(0, track.size)
+    ax.set_ylim(0, track.size)
+    
+    # Draw Walls
+    for p1, p2 in track.outer_walls:
+        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'k-', linewidth=2)
+    for p1, p2 in track.inner_walls:
+        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'k-', linewidth=2)
+        
+    # Draw Car
+    circle = plt.Circle((car.x, car.y), 1.5, color='b' if car.alive else 'r')
+    ax.add_patch(circle)
+    
+    # Draw Sensors (Viz of raycasts)
+    if sensors is not None:
+        start_angle = car.angle - math.pi / 2
+        step_angle = math.pi / (CONFIG["N_SENSORS"] - 1)
+        for i, dist_norm in enumerate(sensors):
+            ray_angle = start_angle + i * step_angle
+            real_dist = dist_norm * CONFIG["SENSOR_RANGE"]
+            ex = car.x + math.cos(ray_angle) * real_dist
+            ey = car.y + math.sin(ray_angle) * real_dist
+            ax.plot([car.x, ex], [car.y, ey], 'g-', alpha=0.5)
 
 def run_simulation():
     track = Track(CONFIG["TRACK_SIZE"], CONFIG["TRACK_WIDTH"])
