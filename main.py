@@ -19,6 +19,18 @@ CONFIG = {
     "GA_ELITISM": 0.2, # Top % survival
     "GA_MUTATION_RATE": 0.2,
     "GA_SIGMA": 0.3, # Gaussian noise std dev
+
+    # DQN Hyperparameters
+    "DQN_GAMMA": 0.90,
+    "DQN_EPS_START": 1.0,
+    "DQN_EPS_END": 0.05,
+    "DQN_EPS_DECAY": 1000,
+    "DQN_LR": 1e-4,
+    "DQN_BATCH_SIZE": 128,
+    "DQN_MEMORY_SIZE": 50000,
+    "DQN_TARGET_UPDATE": 10,
+    "DQN_Hidden": 64,
+    "DQN_TAU": 0.005
 }
 
 # if cuda avail
@@ -284,6 +296,21 @@ def draw_track(ax, track, car, sensors=None):
             ex = car.x + math.cos(ray_angle) * real_dist
             ey = car.y + math.sin(ray_angle) * real_dist
             ax.plot([car.x, ex], [car.y, ey], 'g-', alpha=0.5)
+
+class DQNNet(nn.Module):
+    def __init__(self, inputs, outputs):
+        super(DQNNet, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(inputs, CONFIG["DQN_Hidden"]),
+            nn.ReLU(),
+            nn.Linear(CONFIG["DQN_Hidden"], CONFIG["DQN_Hidden"]),
+            nn.ReLU(),
+            nn.Linear(CONFIG["DQN_Hidden"], outputs) 
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+    
 
 def run_simulation():
     track = Track(CONFIG["TRACK_SIZE"], CONFIG["TRACK_WIDTH"])
