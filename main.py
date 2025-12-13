@@ -222,7 +222,7 @@ class GeneticPopulation:
         self.gen_count = 0
 
         # Logger Setup
-        with open("ga_log.txt", "w") as f:
+        with open("bench/ga_log.txt", "w") as f:
             f.write("Gen,BestDist,AvgDist,Circles\n")
 
     def evaluate(self, track):
@@ -248,7 +248,7 @@ class GeneticPopulation:
         avg_dist = sum(s[0] for s in scored_pop) / len(scored_pop)
         best_circles = scored_pop[0][1]
         print(f"GA Gen {self.gen_count}: Best Dist: {best_dist:.2f}, Avg: {avg_dist:.2f}")
-        with open("ga_log.txt", "a") as f:
+        with open("bench/ga_log.txt", "a") as f:
             f.write(f"{self.gen_count},{best_dist},{avg_dist},{best_circles}\n")
 
         # Selection (Elitism)
@@ -314,9 +314,9 @@ class DQNAgent:
         self.episode = 0
         
         # Logs
-        if os.path.exists("dqn_log.txt"): 
-            os.remove("dqn_log.txt")
-        with open("dqn_log.txt", "w") as f:
+        if os.path.exists("bench/dqn_log.txt"): 
+            os.remove("bench/dqn_log.txt")
+        with open("bench/dqn_log.txt", "w") as f:
             f.write("Episode,Reward,Duration,Epsilon,Circles\n")
 
     def select_action(self, state):
@@ -375,7 +375,7 @@ class DQNAgent:
         eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"])*math.exp(-1. * self.steps_done / CONFIG["DQN_EPS_DECAY"])
               
         print(f"DQN Ep {self.episode}: Rew {total_reward:.1f} | Steps {duration} | Circles {circles} | Eps {eps:.2f}")
-        with open("dqn_log.txt", "a") as f:
+        with open("bench/dqn_log.txt", "a") as f:
             f.write(f"{self.episode},{total_reward},{duration},{eps:.2f},{circles}\n")
         self.episode += 1
 
