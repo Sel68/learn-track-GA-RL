@@ -9,13 +9,13 @@ from collections import deque
 import os
 
 CONFIG = {
-    "MODE": "GA",  # "GA" or "DQN"
+    "MODE": "DQN",  # "GA" or "DQN"
     "TRACK_SIZE": 100,
     "TRACK_WIDTH": 20,
     "N_SENSORS": 8,
     "SENSOR_RANGE": 30,
     "FPS": 60, #Speed/smoothness of sim
-    "RENDER_EVERY": 40, # Frames render for every frame shown
+    "RENDER_EVERY": 100, # Frames render for every frame shown
 
     # GA Hyperparameters
     "GA_POP_SIZE": 5,
@@ -24,10 +24,10 @@ CONFIG = {
     "GA_SIGMA": 0.3, # Gaussian noise std dev
 
     # DQN Hyperparameters
-    "DQN_GAMMA": 0.95,
+    "DQN_GAMMA": 0.99,
     "DQN_EPS_START": 1.0,
     "DQN_EPS_END": 0.05,
-    "DQN_EPS_DECAY": 500,
+    "DQN_EPS_DECAY": 1000,
     "DQN_LR": 1e-3,
     "DQN_BATCH_SIZE": 128,
     "DQN_MEMORY_SIZE": 50000,
