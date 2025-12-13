@@ -206,6 +206,10 @@ class GeneticPopulation:
         self.population = [EvolutionNet().to(device) for _ in range(CONFIG["GA_POP_SIZE"])]
         self.gen_count = 0
 
+        # Logger Setup
+        with open("ga_log.txt", "w") as f:
+            f.write("Gen,BestDist,AvgDist,Circles\n")
+
     def evaluate(self, track):
         scores = []
         for net in self.population:
@@ -236,7 +240,7 @@ class GeneticPopulation:
         retain_len = int(len(scored_pop) * CONFIG["GA_ELITISM"])
         new_pop = [s[2] for s in scored_pop[:retain_len]]
         
-        # Mutation & Crossover (filling rest)
+        # Mutation & Crossover
         while len(new_pop) < CONFIG["GA_POP_SIZE"]:
             parent = random.choice(new_pop[:retain_len])
             child = EvolutionNet().to(device)
