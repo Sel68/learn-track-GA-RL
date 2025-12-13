@@ -92,3 +92,88 @@ class Track:
                     closest_dist = dist
                     
         return closest_dist
+    
+    class Car:
+    def __init__(self, track):
+        self.track = track
+        self.reset()
+        
+    def reset(self):
+        # Start at bottom center, facing right
+        self.x = CONFIG["TRACK_SIZE"] / 2
+        self.y = CONFIG["TRACK_WIDTH"] / 2
+        self.angle = 0 # Radians
+        self.speed = 2.0 
+        self.alive = True
+        self.distance_traveled = 0
+        self.time_alive = 0
+        self.circles = 0
+        self.current_checkpoint = 0
+        self.radars = np.zeros(CONFIG["N_SENSORS"])
+        return self.get_state()
+
+    def step(self, action):
+        """
+        Action handling:
+        GA: action is [steering, acceleration] (continuous)
+        DQN: action is int (0=Left, 1=Straight, 2=Right)
+        """
+        if not self.alive:
+            return self.get_state(), 0, True, {}
+
+        #Physics Update (ass: bicycle model)
+        steering = 0
+        # GA
+        if isinstance(action, (list, np.ndarray, torch.Tensor)):
+            steering = float(action[0]) * 0.1 # Scale -1 to 1 -> small angle
+            # (Ignoring acceleration for simpler stable training, fixed speed)
+            # accel = action[1] 
+        else: # DQN (Discrete)
+            if action == 0: steering = -0.1
+            elif action == 2: steering = 0.1
+        
+        self.angle += steering
+        self.x += math.cos(self.angle) * self.speed
+        self.y += math.sin(self.angle) * self.speed
+        
+        self.time_alive += 1
+        self.distance_traveled += self.speed
+
+        # Collision Detection
+        if self.track.check_collision(self.x, self.y):
+            self.alive = False
+            reward = -10
+        else:
+            # Survival reward
+            reward = 1 
+            # Checkpoint logic for circles
+            cx, cy = self.track.checkpoints[self.current_checkpoint]
+            dist_to_cp = math.sqrt((self.x - cx)**2 + (self.y - cy)**2)
+            if dist_to_cp < CONFIG["TRACK_WIDTH"]:
+                self.current_checkpoint = (self.current_checkpoint + 1) % 4
+                reward += 10 # Bonus for progress
+                if self.current_checkpoint == 0:
+                    self.circles += 1
+                    reward += 50 # Big bonus for lap
+        
+        # Update Sensors
+        self.radars = self._sense()
+        
+        return self.get_state(), reward, not self.alive, {}
+
+    def _sense(self):
+        radars = []
+        # Spread sensors over 180 degrees
+        start_angle = self.angle - math.pi / 2
+        step_angle = math.pi / (CONFIG["N_SENSORS"] - 1)
+        
+        for i in range(CONFIG["N_SENSORS"]):
+            ray_angle = start_angle + i * step_angle
+            ray_dir = (math.cos(ray_angle), math.sin(ray_angle))
+            dist = self.track.get_ray_intersection((self.x, self.y), ray_dir)
+            # Normalize 0-1
+            radars.append(dist / CONFIG["SENSOR_RANGE"]) 
+        return np.array(radars)
+
+    def get_state(self):
+        return torch.FloatTensor(self.radars).to(device)
