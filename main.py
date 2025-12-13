@@ -384,8 +384,8 @@ class DQNAgent:
             # expected Q values
             expected_state_action_values = reward_batch + (next_state_values * CONFIG["DQN_GAMMA"] * (1 - done_batch))
 
-        # MSE Loss
-        criterion = nn.MSELoss()
+        # Huber loss, overcome bad gradients
+        criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values)
 
         self.optimizer.zero_grad()
