@@ -2,15 +2,23 @@ import numpy as np
 import torch
 import math
 import torch.nn as nn
+import matplotlib.pyplot as plt
+import random
 
 CONFIG = {
-    "MODE": "DQN",  # Options: "GA" or "DQN"
+    "MODE": "GA",  # Options: "GA" or "DQN"
     "TRACK_SIZE": 100,
     "TRACK_WIDTH": 20,
     "N_SENSORS": 8,
     "SENSOR_RANGE": 30,
     "FPS": 60, #Speed/smoothness of sim
     "RENDER_EVERY": 4, # Frames render for every frame shown
+
+    # GA Hyperparameters
+    "GA_POP_SIZE": 5,
+    "GA_ELITISM": 0.2, # Top % survival
+    "GA_MUTATION_RATE": 0.2,
+    "GA_SIGMA": 0.3, # Gaussian noise std dev
 }
 
 # if cuda avail
@@ -190,3 +198,121 @@ class EvolutionNet(nn.Module):
 
     def forward(self, x):
         return self.fc(x)
+    
+
+#GA
+class GeneticPopulation:
+    def __init__(self):
+        self.population = [EvolutionNet().to(device) for _ in range(CONFIG["GA_POP_SIZE"])]
+        self.gen_count = 0
+
+    def evaluate(self, track):
+        scores = []
+        for net in self.population:
+            car = Car(track)
+            state = car.get_state()
+            # Simulation loop for one car
+            while car.alive and car.time_alive < 10000: # Timeout limit
+                with torch.no_grad():
+                    action = net(state).cpu().numpy()
+                state, _, done, _ = car.step(action)
+            scores.append((car.distance_traveled, car.circles, net))
+        
+        return scores
+
+    def evolve(self, scored_pop):
+        # Sort by distance, descending
+        scored_pop.sort(key=lambda x: x[0], reverse=True)
+        
+        # Logging
+        best_dist = scored_pop[0][0]
+        avg_dist = sum(s[0] for s in scored_pop) / len(scored_pop)
+        best_circles = scored_pop[0][1]
+        print(f"GA Gen {self.gen_count}: Best Dist: {best_dist:.2f}, Avg: {avg_dist:.2f}")
+        with open("ga_log.txt", "a") as f:
+            f.write(f"{self.gen_count},{best_dist},{avg_dist},{best_circles}\n")
+
+        # Selection (Elitism)
+        retain_len = int(len(scored_pop) * CONFIG["GA_ELITISM"])
+        new_pop = [s[2] for s in scored_pop[:retain_len]]
+        
+        # Mutation & Crossover (filling rest)
+        while len(new_pop) < CONFIG["GA_POP_SIZE"]:
+            parent = random.choice(new_pop[:retain_len])
+            child = EvolutionNet().to(device)
+            child.load_state_dict(parent.state_dict())
+            
+            #Gaussian Noise for exploration
+            with torch.no_grad():
+                for param in child.parameters():
+                    noise = torch.randn_like(param) * CONFIG["GA_SIGMA"]
+                    param.add_(noise)
+            new_pop.append(child)
+        
+        self.population = new_pop
+        self.gen_count += 1
+        # Returns only the best model for visualization
+        return scored_pop[0][2] 
+    
+#Visualisation
+def draw_track(ax, track, car, sensors=None):
+    ax.clear()
+    ax.set_xlim(0, track.size)
+    ax.set_ylim(0, track.size)
+    
+    # Draw Walls
+    for p1, p2 in track.outer_walls:
+        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'k-', linewidth=2)
+    for p1, p2 in track.inner_walls:
+        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'k-', linewidth=2)
+        
+    # Draw Car
+    circle = plt.Circle((car.x, car.y), 1.5, color='b' if car.alive else 'r')
+    ax.add_patch(circle)
+    
+    # Draw Sensors (Viz of raycasts)
+    if sensors is not None:
+        start_angle = car.angle - math.pi / 2
+        step_angle = math.pi / (CONFIG["N_SENSORS"] - 1)
+        for i, dist_norm in enumerate(sensors):
+            ray_angle = start_angle + i * step_angle
+            real_dist = dist_norm * CONFIG["SENSOR_RANGE"]
+            ex = car.x + math.cos(ray_angle) * real_dist
+            ey = car.y + math.sin(ray_angle) * real_dist
+            ax.plot([car.x, ex], [car.y, ey], 'g-', alpha=0.5)
+
+def run_simulation():
+    track = Track(CONFIG["TRACK_SIZE"], CONFIG["TRACK_WIDTH"])
+    
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(6, 6))
+    
+    if CONFIG["MODE"] == "GA":
+        print("Starting Genetic Algorithm...")
+        ga = GeneticPopulation()
+        
+        while True:
+            # Train/Evaluate Population
+            # Fast, no render
+            scored_pop = ga.evaluate(track)
+            
+            #Visualize Best Agent of Generation
+            best_net = scored_pop[0][2]
+            demo_car = Car(track)
+            state = demo_car.get_state()
+            
+            while demo_car.alive and demo_car.time_alive < 10000:
+                with torch.no_grad():
+                    action = best_net(state).cpu().numpy()
+                state, _, done, _ = demo_car.step(action)
+                
+                if demo_car.time_alive % CONFIG["RENDER_EVERY"] == 0:
+                    draw_track(ax, track, demo_car, demo_car.radars)
+                    plt.title(f"GA Gen {ga.gen_count} | Dist: {demo_car.distance_traveled:.1f}")
+                    plt.pause(1/CONFIG["FPS"])
+            
+            # Evolve
+            ga.evolve(scored_pop)
+
+if __name__ == "__main__":
+    run_simulation()
