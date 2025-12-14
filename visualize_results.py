@@ -216,15 +216,17 @@ plt.close()
 print("Saved: ga_circles_vs_generation.png")
 
 # 4. GA: Learning Speed (Path Learning Progress)
-# This shows how fast the algorithm learned - exclude forced stop entries
-valid_gen = [g for g, fs in zip(generations, forced_stop) if not fs]
-valid_circles = [c for c, fs in zip(ga_circles, forced_stop) if not fs]
-
+# This shows how fast the algorithm learned - show all data but mark forced stops
 plt.figure(figsize=(10, 6))
-plt.plot(valid_gen, valid_circles, linewidth=2, color='orange', alpha=0.7, marker='o', markersize=4)
+# Plot all generations to show learning progression
+plt.plot(generations, ga_circles, linewidth=2, color='orange', alpha=0.7, marker='o', markersize=4, label='All Generations')
+# Highlight forced stops with different markers
+if forced_gen:
+    plt.plot(forced_gen, forced_circles, linewidth=2, color='red', alpha=0.8, marker='x', markersize=8, label='Forced Stop', zorder=5)
 plt.xlabel('Generation', fontsize=12)
 plt.ylabel('Circles Completed', fontsize=12)
-plt.title('GA: Learning Speed (Path Learning Progress)\n(Excluding Forced Stop Entries)', fontsize=14, fontweight='bold')
+plt.title('GA: Learning Speed (Path Learning Progress)\n(Last 3 entries were forced stop)', fontsize=14, fontweight='bold')
+plt.legend()
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.savefig(visual_dir / "ga_learning_speed.png", dpi=300, bbox_inches='tight')
@@ -233,9 +235,16 @@ print("Saved: ga_learning_speed.png")
 
 # ==================== COMPARISON GRAPHS ====================
 
+# Prepare data for comparisons (use all generations, but we'll show forced stops separately if needed)
+# For fair comparison, we'll use all GA data but can mark forced stops
+
 # 5. Comparison: Generations vs Episodes (Direct)
 plt.figure(figsize=(10, 6))
-plt.plot(valid_gen, valid_circles, linewidth=2, color='purple', alpha=0.7, marker='o', markersize=4, label='GA (Generations)')
+# Plot all GA generations
+plt.plot(generations, ga_circles, linewidth=2, color='purple', alpha=0.7, marker='o', markersize=4, label='GA (All Generations)')
+# Mark forced stops
+if forced_gen:
+    plt.plot(forced_gen, forced_circles, linewidth=2, color='red', alpha=0.8, marker='x', markersize=6, label='GA (Forced Stop)', zorder=5)
 plt.plot(dqn_data["episodes"], dqn_data["circles"], linewidth=2, color='blue', alpha=0.7, marker='s', markersize=3, label='DQN (Episodes)')
 plt.xlabel('Generation / Episode', fontsize=12)
 plt.ylabel('Circles Completed', fontsize=12)
@@ -249,10 +258,13 @@ print("Saved: comparison_generations_vs_episodes.png")
 
 # 6. Comparison: 50 * Generations vs Episodes (Scaled)
 # Each generation is like 50 episodes
-ga_episodes_equivalent = [g * 50 for g in valid_gen]
+ga_episodes_equivalent = [g * 50 for g in generations]
+forced_episodes_equivalent = [g * 50 for g in forced_gen] if forced_gen else []
 
 plt.figure(figsize=(10, 6))
-plt.plot(ga_episodes_equivalent, valid_circles, linewidth=2, color='purple', alpha=0.7, marker='o', markersize=4, label='GA (50 × Generations)')
+plt.plot(ga_episodes_equivalent, ga_circles, linewidth=2, color='purple', alpha=0.7, marker='o', markersize=4, label='GA (50 × Generations)')
+if forced_episodes_equivalent:
+    plt.plot(forced_episodes_equivalent, forced_circles, linewidth=2, color='red', alpha=0.8, marker='x', markersize=6, label='GA (Forced Stop)', zorder=5)
 plt.plot(dqn_data["episodes"], dqn_data["circles"], linewidth=2, color='blue', alpha=0.7, marker='s', markersize=3, label='DQN (Episodes)')
 plt.xlabel('Episode Equivalent', fontsize=12)
 plt.ylabel('Circles Completed', fontsize=12)
