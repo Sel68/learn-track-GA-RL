@@ -9,26 +9,26 @@ from collections import deque
 import os
 
 CONFIG = {
-    "MODE": "DQN",  # "GA" or "DQN"
+    "MODE": "GA",  # "GA" or "DQN"
     "TRACK_SIZE": 100,
     "TRACK_WIDTH": 20,
     "N_SENSORS": 8,
     "SENSOR_RANGE": 30,
     "FPS": 60, #Speed/smoothness of sim
-    "RENDER_EVERY": 100, # Frames render for every frame shown
+    "RENDER_EVERY": 40, # Frames render for every frame shown
 
     # GA Hyperparameters
-    "GA_POP_SIZE": 5,
-    "GA_ELITISM": 0.2, # Top % survival
+    "GA_POP_SIZE": 50,
+    "GA_ELITISM": 0.4, # Top % survival
     "GA_MUTATION_RATE": 0.6,
-    "GA_SIGMA": 0.3, # Gaussian noise std dev
+    "GA_SIGMA": 0.2, # Gaussian noise std dev
 
     # DQN Hyperparameters
     "DQN_GAMMA": 0.99,
     "DQN_EPS_START": 1.0,
     "DQN_EPS_END": 0.05,
-    "DQN_EPS_DECAY": 1000,
-    "DQN_LR": 1e-3,
+    "DQN_EPS_DECAY": 500,
+    "DQN_LR": 5e-4,
     "DQN_BATCH_SIZE": 128,
     "DQN_MEMORY_SIZE": 50000,
     "DQN_TARGET_UPDATE": 10,
@@ -44,6 +44,8 @@ class Track:
     def __init__(self, size, width):
         self.size = size
         self.width = width
+        self.last_cp_time = 0
+
         # Define Square Track, Outer and Innner walls
         # Outer Clockwise
         self.outer_walls = [
@@ -138,11 +140,11 @@ class Car:
         # DQN Action Handling
         steering = 0
         if isinstance(action, (list, np.ndarray, torch.Tensor)):
-            steering = float(action[0]) * 0.1
+            steering = float(action[0]) * 0.2
         else:
             # Discrete Actions: 0=Left, 1=Straight, 2=Right
-            if action == 0: steering = -0.15 
-            elif action == 2: steering = 0.15
+            if action == 0: steering = -0.2 
+            elif action == 2: steering = 0.2
 
         # Physics
         self.angle += steering
@@ -159,26 +161,31 @@ class Car:
 
         if self.track.check_collision(self.x, self.y):
             self.alive = False
-            reward = -15 # lowered penalty to still motivate progress
+            reward = -10 # lowered penalty to still motivate progress
         else:
             '''
             marginalised reward for survival now. Was moving in small circles. 
             '''
-            reward += 0.1 
+            reward += 0.5
             
             #added reward for getting closer to walls
-            min_wall_dist = np.min(self.radars)
-            reward += min_wall_dist * 0.5 
+            # min_wall_dist = np.min(self.radars)
+            # reward += min_wall_dist * 0.5 
 
-            # Checkpoints\
+            # Checkpoints
             cx, cy = self.track.checkpoints[self.current_checkpoint]
             dist_to_cp = math.sqrt((self.x - cx)**2 + (self.y - cy)**2)
             if dist_to_cp < CONFIG["TRACK_WIDTH"]:
                 self.current_checkpoint = (self.current_checkpoint + 1) % 4
                 reward += 10 
+                self.last_cp_time = self.time_alive
                 if self.current_checkpoint == 0:
                     self.circles += 1
-                    reward += 20 
+                    reward += 20
+            
+            if self.time_alive - self.last_cp_time > 200:
+                self.alive = False
+                reward = -50
         
         return self.get_state(), reward, not self.alive, {}
 
@@ -319,6 +326,14 @@ class DQNAgent:
         with open("bench/dqn_log.txt", "w") as f:
             f.write("Episode,Reward,Duration,Epsilon,Circles\n")
 
+    def soft_update(self):
+        target_dict = self.target_net.state_dict()
+        policy_dict = self.policy_net.state_dict()
+        for key in policy_dict:
+            target_dict[key] = policy_dict[key] * CONFIG["DQN_TAU"] + target_dict[key] * (1 - CONFIG["DQN_TAU"])
+
+        self.target_net.load_state_dict(target_dict)
+
     def select_action(self, state):
         eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"])*math.exp(-1. * self.steps_done/ CONFIG["DQN_EPS_DECAY"])
         self.steps_done += 1
@@ -366,10 +381,11 @@ class DQNAgent:
         # In place gradient clipping
         torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 10)
         self.optimizer.step()
+        self.soft_update()
 
-    def update_target_network(self):
-        #update: Copy weights entirely
-        self.target_net.load_state_dict(self.policy_net.state_dict())
+    # def update_target_network(self):
+    #     #update: Copy weights entirely
+    #     self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def log_episode(self, total_reward, duration, circles):
         eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"])*math.exp(-1. * self.steps_done / CONFIG["DQN_EPS_DECAY"])
@@ -470,8 +486,8 @@ def run_simulation():
                 agent.optimize_model()
                 
                 #Update Target Network
-                if agent.steps_done % 1000 == 0:
-                    agent.update_target_network()
+                # if agent.steps_done % 1000 == 0:
+                #     agent.update_target_network()
                 
                 # Vis
                 if agent.episode % 10 == 0 and car.time_alive % CONFIG["RENDER_EVERY"] == 0:
