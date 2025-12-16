@@ -1,27 +1,6 @@
-"""
-Visualization Script for DQN and Genetic Algorithm Training Results
-
-This script generates comprehensive graphs comparing DQN and GA performance:
-- DQN: Rewards vs Episodes, Circles vs Episodes
-- GA: Circles vs Generation, Learning Speed
-- Comparison: GA Generations vs DQN Episodes (direct and scaled)
-
-Usage:
-    1. Place your data files (dqn_results.json, ga_results.json) in the same directory
-    2. Or modify the script to load your data directly (see manual input section)
-    3. Run: python visualize_results.py
-    4. All graphs will be saved in the 'visual' folder
-
-Data Format:
-    DQN JSON: {"episodes": [1,2,3,...], "rewards": [...], "circles": [...]}
-    GA JSON: {"generations": [1,2,3,...], "circles": [...], "forced_stop": [...]}
-"""
-
 import matplotlib.pyplot as plt
-import numpy as np
+import pandas as pd
 import json
-import os
-import csv
 from pathlib import Path
 
 # Create visual folder if it doesn't exist
@@ -32,38 +11,39 @@ def load_dqn_data(filepath=None):
     """Load DQN training data from log file or JSON/CSV"""
     # Try log file first (from main.py)
     if filepath is None:
-        if os.path.exists("bench/dqn_log.txt"):
+        if Path("bench/dqn_log.txt").exists():
             filepath = "bench/dqn_log.txt"
         else:
             possible_files = ["dqn_results.json", "dqn_data.json", "dqn_results.csv", "dqn_data.csv"]
             for f in possible_files:
-                if os.path.exists(f):
+                if Path(f).exists():
                     filepath = f
                     break
     
-    if filepath and os.path.exists(filepath):
-        if filepath.endswith('.txt'):  # Log file format
-            episodes, rewards, circles = [], [], []
+    if filepath and Path(filepath).exists():
+        if filepath.endswith('.json'):
             with open(filepath, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    episodes.append(int(row['Episode']))
-                    rewards.append(float(row['Reward']))
-                    circles.append(int(row['Circles']))
-            return {"episodes": episodes, "rewards": rewards, "circles": circles}
-        elif filepath.endswith('.json'):
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-            return data
-        elif filepath.endswith('.csv'):
-            episodes, rewards, circles = [], [], []
-            with open(filepath, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    episodes.append(int(row.get('episode', row.get('Episode', 0))))
-                    rewards.append(float(row.get('reward', row.get('Reward', 0))))
-                    circles.append(int(row.get('circles', row.get('Circles', 0))))
-            return {"episodes": episodes, "rewards": rewards, "circles": circles}
+                return json.load(f)
+        
+        # Handle .txt (log) and .csv using pandas
+        try:
+            df = pd.read_csv(filepath)
+            # Normalize columns to lowercase to handle 'Episode' vs 'episode' automatically
+            df.columns = df.columns.str.strip().str.lower()
+            
+            # Map columns based on expected names
+            ep_col = 'episode' if 'episode' in df.columns else df.columns[0]
+            rew_col = 'reward' if 'reward' in df.columns else df.columns[1]
+            circ_col = 'circles' if 'circles' in df.columns else df.columns[2]
+
+            return {
+                "episodes": df[ep_col].tolist(),
+                "rewards": df[rew_col].tolist(),
+                "circles": df[circ_col].tolist()
+            }
+        except Exception as e:
+            print(f"Error reading DQN file: {e}")
+            return None
     
     return None
 
@@ -71,65 +51,53 @@ def load_ga_data(filepath=None):
     """Load GA training data from log file or JSON/CSV"""
     # Try log file first (from main.py)
     if filepath is None:
-        if os.path.exists("bench/ga_log.txt"):
+        if Path("bench/ga_log.txt").exists():
             filepath = "bench/ga_log.txt"
         else:
             possible_files = ["ga_results.json", "ga_data.json", "ga_results.csv", "ga_data.csv"]
             for f in possible_files:
-                if os.path.exists(f):
+                if Path(f).exists():
                     filepath = f
                     break
     
-    if filepath and os.path.exists(filepath):
-        if filepath.endswith('.txt'):  # Log file format: Gen,BestDist,AvgDist,Circles
-            generations, circles = [], []
+    if filepath and Path(filepath).exists():
+        if filepath.endswith('.json'):
             with open(filepath, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    generations.append(int(row['Gen']))
-                    circles.append(int(row['Circles']))
+                return json.load(f)
+        
+        # Handle .txt (log) and .csv using pandas
+        try:
+            df = pd.read_csv(filepath)
+            df.columns = df.columns.str.strip().str.lower()
             
-            # Last 3 entries are forced stop (as mentioned by user)
-            forced_stop = [False] * len(generations)
-            if len(forced_stop) >= 3:
-                forced_stop[-3:] = [True, True, True]
+            # Determine generation column name (log uses 'gen', csv might use 'generation')
+            gen_col = 'gen' if 'gen' in df.columns else 'generation'
+            if gen_col not in df.columns:
+                 # Fallback if header is completely different, though unlikely based on spec
+                 gen_col = df.columns[0]
+
+            generations = df[gen_col].tolist()
+            circles = df['circles'].tolist()
+
+            # Handle forced_stop logic
+            if 'forced_stop' in df.columns or 'forcedstop' in df.columns:
+                col = 'forced_stop' if 'forced_stop' in df.columns else 'forcedstop'
+                forced_stop = df[col].astype(str).str.lower() == 'true'
+                forced_stop = forced_stop.tolist()
+            else:
+                # Last 3 entries are forced stop (as mentioned by user)
+                forced_stop = [False] * len(generations)
+                if len(forced_stop) >= 3:
+                    forced_stop[-3:] = [True, True, True]
             
             return {"generations": generations, "circles": circles, "forced_stop": forced_stop}
-        elif filepath.endswith('.json'):
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-            return data
-        elif filepath.endswith('.csv'):
-            generations, circles, forced_stop = [], [], []
-            with open(filepath, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    generations.append(int(row.get('generation', row.get('Generation', 0))))
-                    circles.append(int(row.get('circles', row.get('Circles', 0))))
-                    forced_stop.append(row.get('forced_stop', row.get('ForcedStop', 'False')).lower() == 'true')
-            return {"generations": generations, "circles": circles, "forced_stop": forced_stop}
+        except Exception as e:
+            print(f"Error reading GA file: {e}")
+            return None
     
     return None
 
-# ========== MANUAL DATA INPUT SECTION ==========
-# If you have data stored in variables or need to input manually, 
-# uncomment and modify the sections below:
 
-# DQN Data Format:
-# dqn_data = {
-#     "episodes": [1, 2, 3, ...],  # List of episode numbers
-#     "rewards": [10, 15, 20, ...],  # List of total rewards per episode
-#     "circles": [0, 0, 1, ...]  # List of circles completed per episode
-# }
-
-# GA Data Format:
-# ga_data = {
-#     "generations": [1, 2, 3, ...],  # List of generation numbers
-#     "circles": [0, 0, 1, ...],  # List of circles completed per generation
-#     "forced_stop": [False, False, ..., True, True, True]  # Last 3 should be True
-# }
-
-# Load data
 dqn_data = load_dqn_data()
 ga_data = load_ga_data()
 
@@ -140,7 +108,7 @@ if dqn_data is None:
     print("Please either:")
     print("  1. Create dqn_results.json with format:")
     print('     {"episodes": [1,2,3,...], "rewards": [...], "circles": [...]}')
-    print("  2. Or modify this script to add your DQN data directly (see lines 66-75)")
+    print("  2. Or modify this script to add your DQN data directly")
     print("=" * 60)
     # Uncomment below and add your DQN data:
     # dqn_data = {"episodes": [...], "rewards": [...], "circles": [...]}
@@ -152,13 +120,12 @@ if ga_data is None:
     print("Please either:")
     print("  1. Create ga_results.json with format:")
     print('     {"generations": [1,2,3,...], "circles": [...], "forced_stop": [...]}')
-    print("  2. Or modify this script to add your GA data directly (see lines 77-82)")
+    print("  2. Or modify this script to add your GA data directly")
     print("=" * 60)
     # Uncomment below and add your GA data:
     # ga_data = {"generations": [...], "circles": [...], "forced_stop": [...]}
     raise ValueError("GA data not found. Please provide data.")
 
-# ==================== DQN GRAPHS ====================
 
 # 1. DQN: Rewards vs Episodes
 plt.figure(figsize=(10, 6))
@@ -186,7 +153,6 @@ plt.savefig(visual_dir / "dqn_circles_vs_episodes.png", dpi=300, bbox_inches='ti
 plt.close()
 print("Saved: dqn_circles_vs_episodes.png")
 
-# ==================== GA GRAPHS ====================
 
 # 3. GA: Circles vs Generation
 plt.figure(figsize=(10, 6))
@@ -233,10 +199,8 @@ plt.savefig(visual_dir / "ga_learning_speed.png", dpi=300, bbox_inches='tight')
 plt.close()
 print("Saved: ga_learning_speed.png")
 
-# ==================== COMPARISON GRAPHS ====================
+# COMPARISION GRAPHS
 
-# Prepare data for comparisons (use all generations, but we'll show forced stops separately if needed)
-# For fair comparison, we'll use all GA data but can mark forced stops
 
 # 5. Comparison: Generations vs Episodes (Direct)
 plt.figure(figsize=(10, 6))
@@ -277,4 +241,3 @@ plt.close()
 print("Saved: comparison_scaled_generations_vs_episodes.png")
 
 print(f"\nAll graphs saved to '{visual_dir}' folder!")
-
