@@ -15,7 +15,7 @@ CONFIG = {
     "N_SENSORS": 8,
     "SENSOR_RANGE": 30,
     "FPS": 60, #Speed/smoothness of sim
-    "RENDER_EVERY": 40, # Frames render for every frame shown
+    "RENDER_EVERY": 1, # Frames render for every frame shown
 
     # GA Hyperparameters
     "GA_POP_SIZE": 50,
@@ -484,11 +484,7 @@ def run_simulation():
                 
                 #Optimize
                 agent.optimize_model()
-                
-                #Update Target Network
-                # if agent.steps_done % 1000 == 0:
-                #     agent.update_target_network()
-                
+                                
                 # Vis
                 if agent.episode % 10 == 0 and car.time_alive % CONFIG["RENDER_EVERY"] == 0:
                     draw_track(ax, track, car, car.radars)
