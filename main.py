@@ -7,18 +7,20 @@ import matplotlib.pyplot as plt
 import random
 from collections import deque
 import os
+from track_setup import create_track, draw_track
 
 CONFIG = {
-    "MODE": "GA",  # "GA" or "DQN"
+    "MODE": "DQN",  # "GA" or "DQN"
     "TRACK_SIZE": 100,
     "TRACK_WIDTH": 20,
+    "TRACK_N_SIDES": 4,  # Number of sides for the polygon track (4=square, 3=triangle, 5=pentagon, etc.)
     "N_SENSORS": 8,
     "SENSOR_RANGE": 30,
     "FPS": 60, #Speed/smoothness of sim
-    "RENDER_EVERY": 1, # Frames render for every frame shown
+    "RENDER_EVERY": 10, # Frames render for every frame shown
 
     # GA Hyperparameters
-    "GA_POP_SIZE": 50,
+    "GA_POP_SIZE": 30,
     "GA_ELITISM": 0.4, # Top % survival
     "GA_MUTATION_RATE": 0.6,
     "GA_SIGMA": 0.2, # Gaussian noise std dev
@@ -27,92 +29,20 @@ CONFIG = {
     "DQN_GAMMA": 0.99,
     "DQN_EPS_START": 1.0,
     "DQN_EPS_END": 0.05,
-    "DQN_EPS_DECAY": 500,
-    "DQN_LR": 5e-4,
-    "DQN_BATCH_SIZE": 128,
-    "DQN_MEMORY_SIZE": 50000,
-    "DQN_TARGET_UPDATE": 10,
-    "DQN_Hidden": 64,
-    "DQN_TAU": 0.005
+    "DQN_EPS_DECAY": 2000,
+    "DQN_LR": 1e-3,
+    "DQN_BATCH_SIZE": 32,
+    "DQN_MEMORY_SIZE": 100000,
+    "DQN_TARGET_UPDATE": 1000,  # Hard update every N steps
+    "DQN_Hidden": 128,
+    "DQN_LEARNING_START": 1000,  # Start training after this many steps
+    "DQN_UPDATE_FREQ": 4  # Train every N steps
 }
 
 # if cuda avail
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-#Geometry and Physics
-class Track:
-    def __init__(self, size, width):
-        self.size = size
-        self.width = width
-        self.last_cp_time = 0
-
-        # Define Square Track, Outer and Innner walls
-        # Outer Clockwise
-        self.outer_walls = [
-            ((0, 0), (size, 0)),
-            ((size, 0), (size, size)),
-            ((size, size), (0, size)),
-            ((0, size), (0, 0))
-        ]
-        # Inner Clockwise
-        inner_s = width
-        inner_e = size - width
-        self.inner_walls = [
-            ((inner_s, inner_s), (inner_e, inner_s)),
-            ((inner_e, inner_s), (inner_e, inner_e)),
-            ((inner_e, inner_e), (inner_s, inner_e)),
-            ((inner_s, inner_e), (inner_s, inner_s))
-        ]
-        self.walls = self.outer_walls + self.inner_walls
-        
-        self.checkpoints = [
-            (size/2, width/2),      # Bottom
-            (size-width/2, size/2), # Right
-            (size/2, size-width/2), # Top
-            (width/2, size/2)       # Left
-        ]
-
-    def check_collision(self, x, y):
-        r = 3.5 # Car radius
-        # Outer bounds (100) - collision if center is within radius of 0 or 100
-        if not (r <= x <= self.size - r and r <= y <= self.size - r):
-            return True
-        
-        # Inner bounds: 20 to 80, collision if center touches expanded inner box
-        inner_s, inner_e = self.width - r, (self.size - self.width) + r
-        if inner_s <= x <= inner_e and inner_s <= y <= inner_e:
-            return True
-        
-        return False
-
-    def get_ray_intersection(self, ray_start, ray_dir):
-        # Vectorized line intersection using cross product logic
-        closest_dist = CONFIG["SENSOR_RANGE"]
-        
-        x1, y1 = ray_start
-        x2, y2 = x1 + ray_dir[0] * closest_dist, y1 + ray_dir[1] * closest_dist
-        
-        for p1, p2 in self.walls:
-            x3, y3 = p1
-            x4, y4 = p2
-            
-            denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-            # Parallel lines
-            if denom == 0:
-                continue
-            
-            t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
-            u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
-            
-            if 0 <= t <= 1 and 0 <= u <= 1:
-                # Intersection found
-                px = x1 + t * (x2 - x1)
-                py = y1 + t * (y2 - y1)
-                dist = math.sqrt((px - x1)**2 + (py - y1)**2)
-                if dist < closest_dist:
-                    closest_dist = dist
-                    
-        return closest_dist
+# Track is now created using track_setup.create_track()
 
 class Car:
     def __init__(self, track):
@@ -120,9 +50,10 @@ class Car:
         self.reset()
         
     def reset(self):
-        # Start at bottom center, facing right
-        self.x = CONFIG["TRACK_SIZE"] / 2
-        self.y = CONFIG["TRACK_WIDTH"] / 2
+        # Start at first checkpoint, facing towards next checkpoint
+        checkpoint = self.track.checkpoints[0]
+        self.x = checkpoint[0]
+        self.y = checkpoint[1]
         self.angle = 0 # Radians
         self.speed = 2.0 
         self.alive = True
@@ -176,7 +107,7 @@ class Car:
             cx, cy = self.track.checkpoints[self.current_checkpoint]
             dist_to_cp = math.sqrt((self.x - cx)**2 + (self.y - cy)**2)
             if dist_to_cp < CONFIG["TRACK_WIDTH"]:
-                self.current_checkpoint = (self.current_checkpoint + 1) % 4
+                self.current_checkpoint = (self.current_checkpoint + 1) % self.track.n_sides
                 reward += 10 
                 self.last_cp_time = self.time_alive
                 if self.current_checkpoint == 0:
@@ -198,7 +129,7 @@ class Car:
         for i in range(CONFIG["N_SENSORS"]):
             ray_angle = start_angle + i * step_angle
             ray_dir = (math.cos(ray_angle), math.sin(ray_angle))
-            dist = self.track.get_ray_intersection((self.x, self.y), ray_dir)
+            dist = self.track.get_ray_intersection((self.x, self.y), ray_dir, CONFIG["SENSOR_RANGE"])
             # Normalize 0-1
             radars.append(dist / CONFIG["SENSOR_RANGE"]) 
         return np.array(radars)
@@ -283,42 +214,106 @@ class GeneticPopulation:
 class DQNNet(nn.Module):
     def __init__(self, inputs, outputs):
         super(DQNNet, self).__init__()
+        # Dueling architecture: separate value and advantage streams
         self.fc = nn.Sequential(
             nn.Linear(inputs, CONFIG["DQN_Hidden"]),
             nn.ReLU(),
             nn.Linear(CONFIG["DQN_Hidden"], CONFIG["DQN_Hidden"]),
-            nn.ReLU(),
-            nn.Linear(CONFIG["DQN_Hidden"], outputs) 
+            nn.ReLU()
         )
+        
+        # Value stream
+        self.value_stream = nn.Sequential(
+            nn.Linear(CONFIG["DQN_Hidden"], CONFIG["DQN_Hidden"]),
+            nn.ReLU(),
+            nn.Linear(CONFIG["DQN_Hidden"], 1)
+        )
+        
+        # Advantage stream
+        self.advantage_stream = nn.Sequential(
+            nn.Linear(CONFIG["DQN_Hidden"], CONFIG["DQN_Hidden"]),
+            nn.ReLU(),
+            nn.Linear(CONFIG["DQN_Hidden"], outputs)
+        )
+        
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for layer in self.modules():
+            if isinstance(layer, nn.Linear):
+                nn.init.orthogonal_(layer.weight, gain=np.sqrt(2))
+                nn.init.constant_(layer.bias, 0)
 
     def forward(self, x):
-        return self.fc(x)
+        features = self.fc(x)
+        value = self.value_stream(features)
+        advantage = self.advantage_stream(features)
+        # Dueling formula: Q(s,a) = V(s) + A(s,a) - mean(A(s,a))
+        return value + advantage - advantage.mean(dim=1, keepdim=True)
     
 class ReplayBuffer:
-    def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
+    def __init__(self, capacity, state_dim):
+        self.capacity = capacity
+        self.state_dim = state_dim
+        self.position = 0
+        self.filled = False
+        
+        # Pre-allocate numpy arrays for efficient storage
+        self.states = np.zeros((capacity, state_dim), dtype=np.float32)
+        self.actions = np.zeros(capacity, dtype=np.int64)
+        self.rewards = np.zeros(capacity, dtype=np.float32)
+        self.next_states = np.zeros((capacity, state_dim), dtype=np.float32)
+        self.dones = np.zeros(capacity, dtype=np.float32)
     
     def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, done))
+        # Convert tensors to numpy if needed
+        if isinstance(state, torch.Tensor):
+            state = state.cpu().numpy()
+        if isinstance(next_state, torch.Tensor):
+            next_state = next_state.cpu().numpy()
+        
+        self.states[self.position] = state
+        self.actions[self.position] = action
+        self.rewards[self.position] = reward
+        self.next_states[self.position] = next_state
+        self.dones[self.position] = float(done)
+        
+        self.position = (self.position + 1) % self.capacity
+        if self.position == 0:
+            self.filled = True
     
     def sample(self, batch_size):
-        return random.sample(self.buffer, batch_size)
+        if self.filled:
+            max_idx = self.capacity
+        else:
+            max_idx = self.position
+        
+        indices = np.random.randint(0, max_idx, size=batch_size)
+        
+        # Convert to tensors on device
+        states = torch.FloatTensor(self.states[indices]).to(device)
+        actions = torch.LongTensor(self.actions[indices]).to(device)
+        rewards = torch.FloatTensor(self.rewards[indices]).to(device)
+        next_states = torch.FloatTensor(self.next_states[indices]).to(device)
+        dones = torch.FloatTensor(self.dones[indices]).to(device)
+        
+        return states, actions, rewards, next_states, dones
     
     def __len__(self):
-        return len(self.buffer)
+        return self.capacity if self.filled else self.position
 
 class DQNAgent:
     def __init__(self):
         self.policy_net = DQNNet(CONFIG["N_SENSORS"], 3).to(device)
         self.target_net = DQNNet(CONFIG["N_SENSORS"], 3).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        # Target net is never trained directly
         self.target_net.eval()
         
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=CONFIG["DQN_LR"])
-        self.memory = ReplayBuffer(CONFIG["DQN_MEMORY_SIZE"])
+        self.memory = ReplayBuffer(CONFIG["DQN_MEMORY_SIZE"], CONFIG["N_SENSORS"])
         self.steps_done = 0
         self.episode = 0
+        self.update_counter = 0
         
         # Logs
         if os.path.exists("bench/dqn_log.txt"): 
@@ -326,16 +321,10 @@ class DQNAgent:
         with open("bench/dqn_log.txt", "w") as f:
             f.write("Episode,Reward,Duration,Epsilon,Circles\n")
 
-    def soft_update(self):
-        target_dict = self.target_net.state_dict()
-        policy_dict = self.policy_net.state_dict()
-        for key in policy_dict:
-            target_dict[key] = policy_dict[key] * CONFIG["DQN_TAU"] + target_dict[key] * (1 - CONFIG["DQN_TAU"])
-
-        self.target_net.load_state_dict(target_dict)
-
     def select_action(self, state):
-        eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"])*math.exp(-1. * self.steps_done/ CONFIG["DQN_EPS_DECAY"])
+        """Epsilon-greedy action selection"""
+        eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"]) * \
+              math.exp(-1.0 * self.steps_done / CONFIG["DQN_EPS_DECAY"])
         self.steps_done += 1
         
         if random.random() > eps:
@@ -345,85 +334,61 @@ class DQNAgent:
             return random.randint(0, 2)
 
     def optimize_model(self):
-        if len(self.memory) < CONFIG["DQN_BATCH_SIZE"]: return
+        """Optimize model using Double DQN with periodic target updates"""
+        if len(self.memory) < CONFIG["DQN_LEARNING_START"]:
+            return
         
-        transitions = self.memory.sample(CONFIG["DQN_BATCH_SIZE"])
-        batch = list(zip(*transitions))
-
-        # Stack tensors
-        state_batch = torch.stack(batch[0])
-        action_batch = torch.LongTensor(batch[1]).unsqueeze(1).to(device)
-        reward_batch = torch.FloatTensor(batch[2]).unsqueeze(1).to(device)
-        next_state_batch = torch.stack(batch[3])
-        done_batch = torch.FloatTensor(batch[4]).unsqueeze(1).to(device)
-
-        '''
-        Compute Q(s_t, a)the model computes Q(s_t), 
-        then we select the columns of actions taken
-        '''
-        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
-
-        # Compute V(s_{t+1}) for all next states.
-        '''
-        Expected values of actions for non_final_next_states are computed based on the "older" target_net
-        '''
+        # Only train every N steps
+        if self.update_counter % CONFIG["DQN_UPDATE_FREQ"] != 0:
+            self.update_counter += 1
+            return
+        self.update_counter += 1
+        
+        if len(self.memory) < CONFIG["DQN_BATCH_SIZE"]:
+            return
+        
+        # Sample from replay buffer
+        states, actions, rewards, next_states, dones = self.memory.sample(CONFIG["DQN_BATCH_SIZE"])
+        
+        # Current Q-values
+        q_values = self.policy_net(states).gather(1, actions.unsqueeze(1))
+        
+        # Double DQN: use policy net to select action, target net to evaluate
         with torch.no_grad():
-            next_state_values = self.target_net(next_state_batch).max(1)[0].unsqueeze(1)
-            # expected Q values
-            expected_state_action_values = reward_batch + (next_state_values * CONFIG["DQN_GAMMA"] * (1 - done_batch))
-
-        # Huber loss, overcome bad gradients
-        criterion = nn.SmoothL1Loss()
-        loss = criterion(state_action_values, expected_state_action_values)
-
+            # Policy net chooses best action for next state
+            next_actions = self.policy_net(next_states).argmax(dim=1, keepdim=True)
+            # Target net evaluates that action
+            next_q_values = self.target_net(next_states).gather(1, next_actions)
+            # Bellman equation
+            target_q_values = rewards.unsqueeze(1) + CONFIG["DQN_GAMMA"] * next_q_values * (1 - dones.unsqueeze(1))
+        
+        # Huber loss
+        loss = nn.SmoothL1Loss()(q_values, target_q_values)
+        
+        # Optimization step
         self.optimizer.zero_grad()
         loss.backward()
-        # In place gradient clipping
-        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 10)
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0)
         self.optimizer.step()
-        self.soft_update()
-
-    # def update_target_network(self):
-    #     #update: Copy weights entirely
-    #     self.target_net.load_state_dict(self.policy_net.state_dict())
+        
+        # Hard update target network periodically
+        if self.steps_done % CONFIG["DQN_TARGET_UPDATE"] == 0:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def log_episode(self, total_reward, duration, circles):
-        eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"])*math.exp(-1. * self.steps_done / CONFIG["DQN_EPS_DECAY"])
-              
+        eps = CONFIG["DQN_EPS_END"] + (CONFIG["DQN_EPS_START"] - CONFIG["DQN_EPS_END"]) * \
+              math.exp(-1.0 * self.steps_done / CONFIG["DQN_EPS_DECAY"])
+        
         print(f"DQN Ep {self.episode}: Rew {total_reward:.1f} | Steps {duration} | Circles {circles} | Eps {eps:.2f}")
         with open("bench/dqn_log.txt", "a") as f:
             f.write(f"{self.episode},{total_reward},{duration},{eps:.2f},{circles}\n")
         self.episode += 1
 
-#Visualisation
-def draw_track(ax, track, car, sensors=None):
-    ax.clear()
-    ax.set_xlim(0, track.size)
-    ax.set_ylim(0, track.size)
-    
-    # Draw Walls
-    for p1, p2 in track.outer_walls:
-        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'k-', linewidth=2)
-    for p1, p2 in track.inner_walls:
-        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'k-', linewidth=2)
-        
-    # Draw Car
-    circle = plt.Circle((car.x, car.y), 1.5, color='b' if car.alive else 'r')
-    ax.add_patch(circle)
-    
-    # Draw Sensors (Viz of raycasts)
-    if sensors is not None:
-        start_angle = car.angle - math.pi / 2
-        step_angle = math.pi / (CONFIG["N_SENSORS"] - 1)
-        for i, dist_norm in enumerate(sensors):
-            ray_angle = start_angle + i * step_angle
-            real_dist = dist_norm * CONFIG["SENSOR_RANGE"]
-            ex = car.x + math.cos(ray_angle) * real_dist
-            ey = car.y + math.sin(ray_angle) * real_dist
-            ax.plot([car.x, ex], [car.y, ey], 'g-', alpha=0.5)
+#Visualisation is now handled by track_setup.draw_track()
 
 def run_simulation():
-    track = Track(CONFIG["TRACK_SIZE"], CONFIG["TRACK_WIDTH"])
+    # Create track with specified number of sides
+    track = create_track(CONFIG["TRACK_SIZE"], CONFIG["TRACK_WIDTH"], CONFIG["TRACK_N_SIDES"])
     
     plt.ion()
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -447,7 +412,7 @@ def run_simulation():
                 state, _, done, _ = demo_car.step(action)
                 
                 if demo_car.time_alive % CONFIG["RENDER_EVERY"] == 0:
-                    draw_track(ax, track, demo_car, demo_car.radars)
+                    draw_track(ax, track, demo_car, demo_car.radars, CONFIG)
                     plt.title(f"GA Gen {ga.gen_count} | Dist: {demo_car.distance_traveled:.1f}")
                     plt.pause(1/CONFIG["FPS"])
             # Evolve
@@ -462,32 +427,33 @@ def run_simulation():
         
         while True:
             car = Car(track)
-            state = car.get_state()
+            state = car.get_state().cpu().numpy() if isinstance(car.get_state(), torch.Tensor) else car.get_state()
             total_reward = 0
             
             while car.alive and car.time_alive < 10000:
                 # Select action
-                action = agent.select_action(state)
+                action = agent.select_action(torch.FloatTensor(state).to(device))
                 
-                # Repeat action for stabiltiy
+                # Repeat action for stability
                 reward_accum = 0
                 for _ in range(FRAME_SKIP):
                     next_state, r, done, _ = car.step(action)
+                    next_state_np = next_state.cpu().numpy() if isinstance(next_state, torch.Tensor) else next_state
                     reward_accum += r
                     if done:
                         break
-                        
-                # Store transitions, acc rewards
-                agent.memory.push(state, action, reward_accum, next_state, done)
-                state = next_state
+                
+                # Store transition
+                agent.memory.push(state, action, reward_accum, next_state_np, done)
+                state = next_state_np
                 total_reward += reward_accum
                 
-                #Optimize
+                # Train
                 agent.optimize_model()
-                                
-                # Vis
+                
+                # Visualize every N episodes
                 if agent.episode % 10 == 0 and car.time_alive % CONFIG["RENDER_EVERY"] == 0:
-                    draw_track(ax, track, car, car.radars)
+                    draw_track(ax, track, car, car.radars, CONFIG)
                     plt.title(f"DQN Ep {agent.episode} | Rew: {total_reward:.1f}")
                     plt.pause(1/CONFIG["FPS"])
             

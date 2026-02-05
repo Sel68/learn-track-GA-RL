@@ -17,9 +17,18 @@ cd learn-track-GA-RL
 # 2. Install dependencies
 pip install torch numpy matplotlib
 
-# 3. Run the simulation
+# 3. Configure track settings in main.py
+#    - Change "TRACK_N_SIDES" in CONFIG to use different polygon shapes:
+#      * 3 = Triangle
+#      * 4 = Square (default)
+#      * 5 = Pentagon
+#      * 6 = Hexagon
+#      * etc.
+
+# 4. Run the simulation
 # Note: Edit 'MODE' in main.py to switch between "DQN" and "GA"
 python main.py
 
-# 4. Generate performance graphs (after training)
+# 5. Generate performance graphs (after training)
 python visualize_results.py
+```
