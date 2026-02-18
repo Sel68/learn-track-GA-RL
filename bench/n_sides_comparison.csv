@@ -1,0 +1,4 @@
+n_sides,ga_first_generation_to_target,ga_episodes_equiv_to_target,dqn_episodes_to_target,target_circles,ga_max_generations,dqn_max_episodes
+4,9,450,-1,1,40,300
+5,6,300,-1,1,40,300
+6,2,100,-1,1,40,300

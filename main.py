@@ -155,12 +155,14 @@ class EvolutionNet(nn.Module):
 
 #GA
 class GeneticPopulation:
-    def __init__(self):
+    def __init__(self, log_path: str = "bench/ga_log.txt"):
         self.population = [EvolutionNet().to(device) for _ in range(CONFIG["GA_POP_SIZE"])]
         self.gen_count = 0
-
-        # Logger Setup
-        with open("bench/ga_log.txt", "w") as f:
+        
+        # Logger Setup (per-run log file)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        self.log_path = log_path
+        with open(self.log_path, "w") as f:
             f.write("Gen,BestDist,AvgDist,Circles\n")
 
     def evaluate(self, track):
@@ -186,7 +188,7 @@ class GeneticPopulation:
         avg_dist = sum(s[0] for s in scored_pop) / len(scored_pop)
         best_circles = scored_pop[0][1]
         print(f"GA Gen {self.gen_count}: Best Dist: {best_dist:.2f}, Avg: {avg_dist:.2f}")
-        with open("bench/ga_log.txt", "a") as f:
+        with open(self.log_path, "a") as f:
             f.write(f"{self.gen_count},{best_dist},{avg_dist},{best_circles}\n")
 
         # Selection (Elitism)
@@ -303,7 +305,7 @@ class ReplayBuffer:
         return self.capacity if self.filled else self.position
 
 class DQNAgent:
-    def __init__(self):
+    def __init__(self, log_path: str = "bench/dqn_log.txt"):
         self.policy_net = DQNNet(CONFIG["N_SENSORS"], 3).to(device)
         self.target_net = DQNNet(CONFIG["N_SENSORS"], 3).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -316,9 +318,11 @@ class DQNAgent:
         self.update_counter = 0
         
         # Logs
-        if os.path.exists("bench/dqn_log.txt"): 
-            os.remove("bench/dqn_log.txt")
-        with open("bench/dqn_log.txt", "w") as f:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        self.log_path = log_path
+        if os.path.exists(self.log_path): 
+            os.remove(self.log_path)
+        with open(self.log_path, "w") as f:
             f.write("Episode,Reward,Duration,Epsilon,Circles\n")
 
     def select_action(self, state):
@@ -380,7 +384,7 @@ class DQNAgent:
               math.exp(-1.0 * self.steps_done / CONFIG["DQN_EPS_DECAY"])
         
         print(f"DQN Ep {self.episode}: Rew {total_reward:.1f} | Steps {duration} | Circles {circles} | Eps {eps:.2f}")
-        with open("bench/dqn_log.txt", "a") as f:
+        with open(self.log_path, "a") as f:
             f.write(f"{self.episode},{total_reward},{duration},{eps:.2f},{circles}\n")
         self.episode += 1
 

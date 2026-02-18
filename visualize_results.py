@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 import json
 from pathlib import Path
 
@@ -239,5 +240,87 @@ plt.tight_layout()
 plt.savefig(visual_dir / "comparison_scaled_generations_vs_episodes.png", dpi=300, bbox_inches='tight')
 plt.close()
 print("Saved: comparison_scaled_generations_vs_episodes.png")
+
+# 7. Comparison: Episodes to Target vs Number of Polygon Sides
+# This uses summary data produced by n_sides_experiments.py
+summary_path = Path("bench") / "n_sides_comparison.csv"
+
+if summary_path.exists():
+    try:
+        df_n = pd.read_csv(summary_path)
+
+        # We want: GA generations to convergence vs DQN episodes to convergence, both vs N
+        required_cols = {"n_sides", "ga_first_generation_to_target", "dqn_episodes_to_target"}
+        if required_cols.issubset(df_n.columns):
+            # Coerce to numeric and treat -1 as missing
+            df_n = df_n.copy()
+            df_n["n_sides"] = pd.to_numeric(df_n["n_sides"], errors="coerce")
+            df_n["ga_first_generation_to_target"] = pd.to_numeric(
+                df_n["ga_first_generation_to_target"], errors="coerce"
+            )
+            df_n["dqn_episodes_to_target"] = pd.to_numeric(
+                df_n["dqn_episodes_to_target"], errors="coerce"
+            )
+
+            # In the CSV, -1 means "did not converge within budget"
+            df_n.replace(-1, np.nan, inplace=True)
+
+            # Drop rows where either GA or DQN value is missing
+            df_plot = df_n.dropna(
+                subset=["n_sides", "ga_first_generation_to_target", "dqn_episodes_to_target"]
+            )
+
+            if not df_plot.empty:
+                plt.figure(figsize=(10, 6))
+
+                x_vals = df_plot["n_sides"].astype(float).tolist()
+                ga_gens = df_plot["ga_first_generation_to_target"].astype(float).tolist()
+                dqn_eps = df_plot["dqn_episodes_to_target"].astype(float).tolist()
+
+                plt.plot(
+                    x_vals,
+                    ga_gens,
+                    marker="s",
+                    linewidth=2,
+                    color="purple",
+                    alpha=0.8,
+                    label="GA: generations to convergence",
+                )
+                plt.plot(
+                    x_vals,
+                    dqn_eps,
+                    marker="o",
+                    linewidth=2,
+                    color="blue",
+                    alpha=0.8,
+                    label="DQN: episodes to convergence",
+                )
+
+                plt.xlabel("Number of polygon sides (N)", fontsize=12)
+                plt.ylabel("Training steps to first successful lap\n(generations for GA, episodes for DQN)", fontsize=12)
+                plt.title(
+                    "Convergence Speed vs Track Complexity\n"
+                    "(GA generations and DQN episodes across polygon sides)",
+                    fontsize=14,
+                    fontweight="bold",
+                )
+                plt.grid(True, alpha=0.3)
+                plt.legend()
+                plt.tight_layout()
+                plt.savefig(
+                    visual_dir / "comparison_convergence_vs_n_sides.png",
+                    dpi=300,
+                    bbox_inches="tight",
+                )
+                plt.close()
+                print("Saved: comparison_convergence_vs_n_sides.png")
+            else:
+                print("N-sides summary file has no valid numeric rows to plot.")
+        else:
+            print("N-sides summary file found, but required columns are missing.")
+    except Exception as e:
+        print(f"Error processing N-sides summary data: {e}")
+else:
+    print("No N-sides summary file found. Run 'python n_sides_experiments.py' to generate it.")
 
 print(f"\nAll graphs saved to '{visual_dir}' folder!")
